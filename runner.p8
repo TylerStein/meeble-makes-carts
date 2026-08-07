@@ -20,14 +20,20 @@ player = {
     y = 112,
     vx = 0,
     vy = 0,
+    w = 8,
+    h = 8,
+    x2 = 0,
+    y2 = 0,
     accel_x = 1,
     brake_x = 2,
     max_vx = 6,
-    max_vy = 12,
-    jump_force = 10,
+    max_vy = 7,
+    jump_force = 7,
     fast_fall = 3,
     slow_fall = 1,
-    grounded = false,
+    is_grounded = false,
+    collision = { x = 0, y = 0},
+    is_colliding = false,
     anim_frame = 1,
     anim = p_anims.idle,
 }
@@ -37,6 +43,12 @@ obstacle_halls = {
     { 38 },
     { 43 }
 }
+
+world = {
+    { x = 72, y = 98, w = 8, h = 8 },
+    { x = 0, y = 120, w = 128, h = 8 }
+}
+world_debug_sprite = 84
 
 active_obstacle = {
     src = obstacle_halls[1],
@@ -49,9 +61,10 @@ firewall_anim_frame = 1
 
 firewall_speed = 0
 firewall_x = 4
+firewall_enabled = false
 
-boundary_y = { 8, 112 }
-boundary_x = { 8, 80 }
+boundary_y = { 8, 128 } -- 112
+boundary_x = { 8, 128 } -- 80
 
 background_offset_x = 0
 anim_rate = 2
@@ -66,50 +79,122 @@ function reset_game()
     background_offset_x = 0
     anim_time = 0
     player.x = 64
-    player.y = 112
+    player.y = 64
     player.vx = 0
     player.vy = 0
-    player.grounded = false
+    player.x2 = 64 + 8
+    player.y2 = 64 + 8
+    player.collision.x = 0
+    player.collision.y = 0
+    player.is_colliding = false
+    player.is_grounded = false
     player.anim_frame = 1
     player.anim = p_anims.idle
+end
+
+function intersect(a, b)
+    if a.x2 > b.x and a.x < b.x2 then
+        -- x overlap
+        if a.y2 > b.y and a.y < a.y2 then
+            -- y overlap
+            return true
+        end
+    end
+
+    return false
+end
+
+function resolve_collisions(rigidbodies, world)
+    -- rigidbody { x, y, vx, vy, w, h, x2, y2, collision, is_colliding }
+    -- world { x, y, w, h }
+
+    for rb in all(rigidbodies) do
+        rb.is_colliding = false
+        rb.collision.x = 0
+        rb.collision.y = 0
+        rb.x2 = rb.x + rb.w
+        rb.y2 = rb.y + rb.h
+
+        for collider in all(world) do
+            collider.x2 = collider.x + collider.w
+            collider.y2 = collider.y + collider.h
+
+            if intersect(rb, collider) then
+                -- collision occured
+                rb.is_colliding = true
+
+                if rb.x <= collider.x then
+                    -- shift left
+                    rb.collision.x = collider.x - rb.x2
+                elseif rb.x > collider.x then
+                    -- shift right
+                    rb.collision.x = collider.x2 - rb.x
+                end
+
+                if rb.y <= collider.y then
+                    -- shift up
+                    rb.collision.y = collider.y - rb.y2
+                elseif rb.y > collider.y then
+                    -- shift down
+                    rb.collision.y = collider.y2 - rb.y
+                end
+
+                move_rb(rb, rb.collision.x, rb.collision.y)
+            end
+        end
+    end
 end
 
 function _draw()
     cls(5)    
 
-    map(0, 0, background_offset_x - 64, 0, 32, 16)
-    map(active_obstacle.src[1], 0, active_obstacle.x, 0, 4, 16)
+    -- map(0, 0, background_offset_x - 64, 0, 32, 16)
+    -- map(active_obstacle.src[1], 0, active_obstacle.x, 0, 4, 16)
 
     spr(player.anim[player.anim_frame], player.x, player.y)
 
-    -- draw firewall
-    firewall_offset = firewall_x % 8
-    for i = 1, 14 do
-        local step = 0
-        for j = -8 + firewall_offset, firewall_x do
-            if step == 0 then
-                step = 7
-
-                if j + 8 > firewall_x then
-                    spr(firewall_edge_anim[firewall_anim_frame], j, i * 8)
-                else
-                    spr(firewall_inner_anim[firewall_anim_frame], j, i * 8)
+    for collider in all(world) do
+        for i = 0, collider.w do
+            for j = 0, collider.h do
+                if i % 8 == 0 and j % 8 == 0 then
+                    spr(world_debug_sprite, collider.x + i, collider.y + j, 1, 1)
                 end
-            else
-                step -= 1
             end
+        end
+    end
+
+    if firewall_enabled then
+        -- draw firewall
+        firewall_offset = firewall_x % 8
+        for i = 1, 14 do
+            local step = 0
+            for j = -8 + firewall_offset, firewall_x do
+                if step == 0 then
+                    step = 7
+
+                    if j + 8 > firewall_x then
+                        spr(firewall_edge_anim[firewall_anim_frame], j, i * 8)
+                    else
+                        spr(firewall_inner_anim[firewall_anim_frame], j, i * 8)
+                    end
+                else
+                    step -= 1
+                end
 
 
-            -- if j > firewall_tiles - 1 then
-            --     
-            -- else
-            -- end
+                -- if j > firewall_tiles - 1 then
+                --     
+                -- else
+                -- end
+            end
         end
     end
    	
     -- print("camera " .. background_offset_x, 0, 0, 7)
     -- print("X " .. player.x .. " Y " .. player.y .. " VX " .. player.vx .. " VY " .. player.vy, 0, 0, 7)
     -- print("anim " .. player.anim[player.anim_frame] .. " (" .. player.anim_frame .. " of " .. #player.anim .. ")", 0, 6, 7)
+    print("collision x = " .. player.collision.x .. " y = " .. player.collision.y, 2, 2, 7)
+    print("position x = " .. player.x .. " y = " .. player.y)
 end
 
 function update_animations()
@@ -168,33 +253,48 @@ function apply_boundaries()
     if player.y < boundary_y[1] then
         -- hit ceiling
         player.y = boundary_y[1]
+        player.y2 = player.y + player.h
         player.vy = 0
-        player.grounded = false
+        -- player.is_grounded = false
     elseif player.y >= boundary_y[2] then
         -- hit floor
         player.y = boundary_y[2]
+        player.y2 = player.y + player.h
         player.vy = 0
-        player.grounded = true
+        -- player.is_grounded = true
     else
         -- falling
-        player.grounded = false
+        -- player.is_grounded = false
     end
 
     -- clamp player to x boundaries and "move" the camera to keep the player in the center of the screen
     if player.x < boundary_x[1] then
         -- move camera left
         player.x = boundary_x[1]
+        player.x2 = player.x + player.w
     elseif player.x > boundary_x[2] then
         -- move camera right
         local diff = player.x - boundary_x[2]
         player.x = boundary_x[2]
+        player.x2 = player.x + player.w
         background_offset_x -= diff
         firewall_x -= diff
         active_obstacle.x -= diff
     end
 end
 
+function move_rb(rb, dx, dy)
+    rb.x += dx
+    rb.y += dy
+    rb.x2 = rb.x + rb.w
+    rb.y2 = rb.y + rb.h
+end
+
 function _update()
+    if not btnp(🅾️) then
+        return
+    end
+
     if btn(btn_right) then
         if player.vx >= 0 then
             player.vx = move_toward(player.vx, player.max_vx, player.accel_x)
@@ -211,9 +311,9 @@ function _update()
         player.vx = move_toward(player.vx, 0, player.brake_x)
     end
 
-    if btnp(btn_jump) and player.grounded then
+    if btnp(btn_jump) and player.is_grounded then
         player.vy = player.jump_force * -1
-    elseif not player.grounded then
+    elseif not player.is_grounded then
         if btn(btn_fall) then
             player.vy = move_toward(player.vy, player.max_vy, player.fast_fall)
         elseif btn(btn_jump) then
@@ -222,11 +322,26 @@ function _update()
             player.vy = move_toward(player.vy, player.max_vy, gravity)
         end
     end
-
-    player.x += player.vx
-    player.y += player.vy
+        
+    move_rb(player, player.vx, player.vy)
 
     apply_boundaries()
+    resolve_collisions()
+
+    if player.is_colliding then
+        if player.collision.x != 0 then
+            player.vx = 0
+        end
+
+        if player.collision.y != 0 then
+            player.vy = 0
+            if player.collision.y < 0 then
+                player.is_grounded = true
+            else
+                player.is_grounded = false
+            end
+        end
+    end
 
     player.vy = clamp(player.vy, -player.max_vy, player.max_vy)
     player.vx = clamp(player.vx, -player.max_vx, player.max_vx)
@@ -240,20 +355,27 @@ function _update()
         background_offset_x -= 64
     end
 
-    -- firewall behavior
-    if firewall_x < 2 then
-        firewall_x = 2
-    else
-        firewall_x += firewall_speed
-    end
-
     -- obstacle behavior
     if active_obstacle.x < -32 then
         active_obstacle.x = 160
         active_obstacle.src = rnd(obstacle_halls)
     end
+    
+    if firewall_enabled then
+        -- firewall behavior
+        if firewall_x < 2 then
+            firewall_x = 2
+        else
+            firewall_x += firewall_speed
+        end
 
-    if player.x <= firewall_x then
+        if player.x <= firewall_x then
+            reset_game()
+        end
+    end
+
+    if player.x < -8 or player.x > 136 or player.y < -8 or player.y > 136 then
+        -- out of bounds
         reset_game()
     end
 end
